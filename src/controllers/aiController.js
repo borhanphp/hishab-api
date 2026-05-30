@@ -138,8 +138,10 @@ Limit your response to 2-3 short, crisp paragraphs. Be direct, and offer concret
       if (!apiResponse.ok) {
         const errBody = await apiResponse.json().catch(() => ({}));
         console.error('OpenRouter API Error:', errBody);
-        const mockReply = generateMockResponse(user, income, expenses, loans, message);
-        return res.status(200).json({ reply: mockReply });
+        const errorMessage = errBody.error?.message || apiResponse.statusText || 'Unknown error';
+        return res.status(200).json({
+          reply: `⚠️ **OpenRouter API Error**: ${errorMessage}\n\nPlease check your OpenRouter API key, credit balance, or model availability.`
+        });
       }
 
       const responseData = await apiResponse.json();
@@ -174,9 +176,10 @@ Limit your response to 2-3 short, crisp paragraphs. Be direct, and offer concret
       if (!apiResponse.ok) {
         const errBody = await apiResponse.json().catch(() => ({}));
         console.error('Gemini API Error:', errBody);
-        // Fallback if API fails
-        const mockReply = generateMockResponse(user, income, expenses, loans, message);
-        return res.status(200).json({ reply: mockReply });
+        const errorMessage = errBody.error?.message || apiResponse.statusText || 'Unknown error';
+        return res.status(200).json({
+          reply: `⚠️ **Gemini API Error**: ${errorMessage}\n\nPlease check your Gemini API key configuration.`
+        });
       }
 
       const responseData = await apiResponse.json();
@@ -186,7 +189,7 @@ Limit your response to 2-3 short, crisp paragraphs. Be direct, and offer concret
     res.status(200).json({ reply: replyText });
 
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(500).json({ message: `Internal Server Error: ${error.message}` });
   }
 };
 
