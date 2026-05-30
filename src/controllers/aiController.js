@@ -168,8 +168,11 @@ Limit your response to 2-3 short, crisp paragraphs. Be direct, and offer concret
               content: message
             }
           ],
-          max_tokens: 500,
+          max_tokens: 800,
           temperature: 0.7,
+          reasoning: {
+            exclude: true
+          }
         })
       });
 
@@ -183,7 +186,11 @@ Limit your response to 2-3 short, crisp paragraphs. Be direct, and offer concret
       }
 
       const responseData = await apiResponse.json();
-      replyText = responseData.choices?.[0]?.message?.content || 'I am sorry, I am unable to analyze that right now.';
+      let content = responseData.choices?.[0]?.message?.content || '';
+      if (content.includes('<think>')) {
+        content = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+      }
+      replyText = content || 'I am sorry, I am unable to analyze that right now.';
     } else {
       // Fallback to Gemini
       const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
@@ -431,8 +438,11 @@ Keep each tip short, crisp, and direct (max 2 sentences). Use the user's currenc
               content: prompt
             }
           ],
-          max_tokens: 500,
+          max_tokens: 800,
           temperature: 0.7,
+          reasoning: {
+            exclude: true
+          }
         })
       });
 
@@ -441,7 +451,11 @@ Keep each tip short, crisp, and direct (max 2 sentences). Use the user's currenc
       }
 
       const responseData = await apiResponse.json();
-      replyText = responseData.choices?.[0]?.message?.content || '[]';
+      let content = responseData.choices?.[0]?.message?.content || '[]';
+      if (content.includes('<think>')) {
+        content = content.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+      }
+      replyText = content;
     } else {
       // Fallback to Gemini
       const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
