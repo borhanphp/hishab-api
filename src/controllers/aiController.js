@@ -69,10 +69,6 @@ const getAICoachResponse = async (req, res) => {
       return res.status(404).json({ message: 'User not found' });
     }
 
-    const income = await Income.findOne({ userId: req.user.id, month: currentMonth });
-    const expenses = await Expense.find({ userId: req.user.id, month: currentMonth });
-    const loans = await Loan.find({ userId: req.user.id, isSettled: false });
-
     const openrouterApiKey = process.env.OPENROUTER_API_KEY;
     const openrouterModel = process.env.OPENROUTER_MODEL || 'deepseek/deepseek-v4-flash:free';
     const geminiApiKey = process.env.GEMINI_API_KEY;
@@ -83,29 +79,71 @@ const getAICoachResponse = async (req, res) => {
 
     // If no API key is configured, fallback to rule-based mock advisor
     if (!hasOpenRouter && !hasGemini) {
+      const income = await Income.findOne({ userId: req.user.id, month: currentMonth });
+      const expenses = await Expense.find({ userId: req.user.id, month: currentMonth });
+      const loans = await Loan.find({ userId: req.user.id, isSettled: false });
       const mockReply = generateMockResponse(user, income, expenses, loans, message);
       return res.status(200).json({ reply: mockReply });
     }
 
+    // Fetch user-specific financial records (strictly scoped to req.user.id)
+    const allIncomes = await Income.find({ userId: req.user.id }).sort({ month: -1 });
+    const allExpenses = await Expense.find({ userId: req.user.id }).sort({ month: -1 });
+    const loans = await Loan.find({ userId: req.user.id, isSettled: false });
+
     // Prepare system prompts and context details
     const currency = user.currency || '$';
-    const totalIncome = income?.totalIncome || 0;
-    const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
-    const remaining = totalIncome - totalExpenses;
     
     const activeDebtList = loans.filter(l => l.type === 'borrowed').map(l => `${l.borrowerName}: ${currency}${l.amount}`).join(', ');
     const activeOwedList = loans.filter(l => l.type === 'lent').map(l => `${l.borrowerName}: ${currency}${l.amount}`).join(', ');
 
-    const systemPrompt = `You are Hishab AI, a premium personal finance coach. The user's name is ${user.username}, their currency is ${currency}, their goal is ${user.financialGoal}, and their monthly loan target payoff is ${currency}${user.monthlyLoanTarget}.
-Here is their current financial status for the month of ${currentMonth}:
-- Total Monthly Income: ${currency}${totalIncome} (Sources: ${income?.sources.map(s => `${s.sourceName}: ${currency}${s.amount}`).join(', ') || 'None'})
-- Total Monthly Expenses: ${currency}${totalExpenses} (List: ${expenses.map(e => `${e.title}: ${currency}${e.amount} [Fixed: ${e.isFixed}, Completed/Paid: ${e.isCompleted}]`).join(', ') || 'None'})
-- Net Remaining Savings Balance: ${currency}${remaining}
-- Active Loans (Who they owe money to): ${activeDebtList || 'None'}
-- Active Loans (Who owes them money): ${activeOwedList || 'None'}
+    // Group incomes and expenses by month
+    const financialDataByMonth = {};
 
-Provide a highly realistic, motivating, and actionable advice to the user. Address them by name and use their currency symbol (${currency}) for all financial numbers.
-Limit your response to 2-3 short, crisp paragraphs. Be direct, and offer concrete tips on their budget or loan payoff timeline. Do not use Markdown headings like # or ##. Use bold text for key terms.`;
+    allIncomes.forEach(inc => {
+      if (!financialDataByMonth[inc.month]) {
+        financialDataByMonth[inc.month] = { income: 0, sources: [], expenses: [] };
+      }
+      financialDataByMonth[inc.month].income = inc.totalIncome;
+      financialDataByMonth[inc.month].sources = inc.sources.map(s => `${s.sourceName}: ${currency}${s.amount}`);
+    });
+
+    allExpenses.forEach(exp => {
+      if (!financialDataByMonth[exp.month]) {
+        financialDataByMonth[exp.month] = { income: 0, sources: [], expenses: [] };
+      }
+      financialDataByMonth[exp.month].expenses.push(
+        `${exp.title}: ${currency}${exp.amount} [Category: ${exp.category}, Fixed: ${exp.isFixed}, Paid: ${exp.isCompleted}]`
+      );
+    });
+
+    let monthlyBreakdownStr = '';
+    const months = Object.keys(financialDataByMonth).sort().reverse();
+    if (months.length === 0) {
+      monthlyBreakdownStr = 'No income or expense records found.';
+    } else {
+      months.forEach(m => {
+        const data = financialDataByMonth[m];
+        const totalExp = allExpenses.filter(e => e.month === m).reduce((sum, e) => sum + e.amount, 0);
+        const net = data.income - totalExp;
+        monthlyBreakdownStr += `\n### Month: ${m}\n`;
+        monthlyBreakdownStr += `- Total Income: ${currency}${data.income} (Sources: ${data.sources.join(', ') || 'None'})\n`;
+        monthlyBreakdownStr += `- Total Expenses: ${currency}${totalExp} (List: ${data.expenses.join(', ') || 'None'})\n`;
+        monthlyBreakdownStr += `- Net Remaining: ${currency}${net}\n`;
+      });
+    }
+
+    const systemPrompt = `You are Hishab AI, a premium personal finance coach. The user's name is ${user.username}, their currency is ${currency}, their goal is ${user.financialGoal}, and their monthly loan target payoff is ${currency}${user.monthlyLoanTarget}.
+
+Here is their full historical financial status by month:
+${monthlyBreakdownStr}
+
+Active Loans (Who they owe money to): ${activeDebtList || 'None'}
+Active Loans (Who owes them money): ${activeOwedList || 'None'}
+
+Provide highly realistic, motivating, and actionable advice to the user. Address them by name and use their currency symbol (${currency}) for all financial numbers.
+When the user asks about a specific month (e.g. "June 2026" or "last month"), refer to the corresponding month's data in the history.
+Limit your response to 2-3 short, crisp paragraphs. Be direct, and offer concrete tips on their budget or loan payoff timeline. Do not use Markdown headings like # or ## in the final output (but you can use bold text for key terms).`;
 
     let replyText = '';
 
