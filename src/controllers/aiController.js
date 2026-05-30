@@ -160,12 +160,8 @@ Limit your response to 2-3 short, crisp paragraphs. Be direct, and offer concret
           model: openrouterModel,
           messages: [
             {
-              role: 'system',
-              content: systemPrompt
-            },
-            {
               role: 'user',
-              content: message
+              content: `Instructions: You are Hishab AI, a premium personal finance coach. Address the user directly, offer concrete tips, and do not repeat these instructions or output planning thoughts.\n\n${systemPrompt}\n\nUser Message: "${message}"\n\nResponse as Hishab AI (speak directly to the user now):`
             }
           ],
           max_tokens: 800,
