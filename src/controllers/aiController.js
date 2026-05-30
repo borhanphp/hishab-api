@@ -47,7 +47,7 @@ const generateMockResponse = (user, income, expenses, loans, userMessage) => {
   }
 
   // General fallback response
-  return `Hi ${name}, I am your Hishab AI Financial Coach! I've analyzed your logs for ${getCurrentMonth()}:\n\n- **Income**: ${currency}${totalIncome.toLocaleString()}\n- **Expenses**: ${currency}${totalExpenses.toLocaleString()}\n- **Remaining Balance**: ${currency}${remaining.toLocaleString()}\n- **Active Debt Owed**: ${currency}${activeDebt.toLocaleString()}\n\nWhat would you like to achieve today? Ask me about debt payoff strategies, saving tips, or how to allocate your monthly remaining cash! *(Note: Connect a Gemini API Key in your backend .env file to enable full conversational intelligence!)*`;
+  return `Hi ${name}, I am your Hishab AI Financial Coach! I've analyzed your logs for ${getCurrentMonth()}:\n\n- **Income**: ${currency}${totalIncome.toLocaleString()}\n- **Expenses**: ${currency}${totalExpenses.toLocaleString()}\n- **Remaining Balance**: ${currency}${remaining.toLocaleString()}\n- **Active Debt Owed**: ${currency}${activeDebt.toLocaleString()}\n\nWhat would you like to achieve today? Ask me about debt payoff strategies, saving tips, or how to allocate your monthly remaining cash! *(Note: Connect an OpenRouter API Key in your backend .env file to enable full conversational intelligence!)*`;
 };
 
 // @desc    Generate AI coaching chat response
@@ -73,10 +73,16 @@ const getAICoachResponse = async (req, res) => {
     const expenses = await Expense.find({ userId: req.user.id, month: currentMonth });
     const loans = await Loan.find({ userId: req.user.id, isSettled: false });
 
-    const apiKey = process.env.GEMINI_API_KEY;
+    const openrouterApiKey = process.env.OPENROUTER_API_KEY;
+    const openrouterModel = process.env.OPENROUTER_MODEL || 'deepseek/deepseek-v4-flash:free';
+    const geminiApiKey = process.env.GEMINI_API_KEY;
+
+    // Check if we have a valid key (either OpenRouter or Gemini)
+    const hasOpenRouter = openrouterApiKey && openrouterApiKey !== 'your_openrouter_api_key_here';
+    const hasGemini = geminiApiKey && geminiApiKey !== 'your_gemini_api_key_here';
 
     // If no API key is configured, fallback to rule-based mock advisor
-    if (!apiKey || apiKey === 'your_gemini_api_key_here') {
+    if (!hasOpenRouter && !hasGemini) {
       const mockReply = generateMockResponse(user, income, expenses, loans, message);
       return res.status(200).json({ reply: mockReply });
     }
@@ -101,41 +107,81 @@ Here is their current financial status for the month of ${currentMonth}:
 Provide a highly realistic, motivating, and actionable advice to the user. Address them by name and use their currency symbol (${currency}) for all financial numbers.
 Limit your response to 2-3 short, crisp paragraphs. Be direct, and offer concrete tips on their budget or loan payoff timeline. Do not use Markdown headings like # or ##. Use bold text for key terms.`;
 
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    let replyText = '';
 
-    const apiResponse = await fetch(geminiUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              {
-                text: `${systemPrompt}\n\nUser message: "${message}"`
-              }
-            ]
-          }
-        ],
-        generationConfig: {
-          maxOutputTokens: 500,
+    if (hasOpenRouter) {
+      const apiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${openrouterApiKey}`,
+          'HTTP-Referer': 'https://github.com/hishab',
+          'X-Title': 'Hishab Personal Finance Coach',
+        },
+        body: JSON.stringify({
+          model: openrouterModel,
+          messages: [
+            {
+              role: 'system',
+              content: systemPrompt
+            },
+            {
+              role: 'user',
+              content: message
+            }
+          ],
+          max_tokens: 500,
           temperature: 0.7,
-        }
-      })
-    });
+        })
+      });
 
-    if (!apiResponse.ok) {
-      const errBody = await apiResponse.json().catch(() => ({}));
-      console.error('Gemini API Error:', errBody);
-      // Fallback if API fails
-      const mockReply = generateMockResponse(user, income, expenses, loans, message);
-      return res.status(200).json({ reply: mockReply });
+      if (!apiResponse.ok) {
+        const errBody = await apiResponse.json().catch(() => ({}));
+        console.error('OpenRouter API Error:', errBody);
+        const mockReply = generateMockResponse(user, income, expenses, loans, message);
+        return res.status(200).json({ reply: mockReply });
+      }
+
+      const responseData = await apiResponse.json();
+      replyText = responseData.choices?.[0]?.message?.content || 'I am sorry, I am unable to analyze that right now.';
+    } else {
+      // Fallback to Gemini
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
+
+      const apiResponse = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  text: `${systemPrompt}\n\nUser message: "${message}"`
+                }
+              ]
+            }
+          ],
+          generationConfig: {
+            maxOutputTokens: 500,
+            temperature: 0.7,
+          }
+        })
+      });
+
+      if (!apiResponse.ok) {
+        const errBody = await apiResponse.json().catch(() => ({}));
+        console.error('Gemini API Error:', errBody);
+        // Fallback if API fails
+        const mockReply = generateMockResponse(user, income, expenses, loans, message);
+        return res.status(200).json({ reply: mockReply });
+      }
+
+      const responseData = await apiResponse.json();
+      replyText = responseData.candidates?.[0]?.content?.parts?.[0]?.text || 'I am sorry, I am unable to analyze that right now.';
     }
-
-    const responseData = await apiResponse.json();
-    const replyText = responseData.candidates?.[0]?.content?.parts?.[0]?.text || 'I am sorry, I am unable to analyze that right now.';
     
     res.status(200).json({ reply: replyText });
 
