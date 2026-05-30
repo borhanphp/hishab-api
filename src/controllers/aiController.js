@@ -328,7 +328,175 @@ Do not enclose the JSON inside markdown code blocks (like \`\`\`json). Just retu
   }
 };
 
+const getAICoachTips = async (req, res) => {
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const openrouterApiKey = process.env.OPENROUTER_API_KEY;
+    const openrouterModel = process.env.OPENROUTER_MODEL || 'deepseek/deepseek-v4-flash:free';
+    const geminiApiKey = process.env.GEMINI_API_KEY;
+
+    // Check if we have a valid key (either OpenRouter or Gemini)
+    const hasOpenRouter = openrouterApiKey && openrouterApiKey !== 'your_openrouter_api_key_here';
+    const hasGemini = geminiApiKey && geminiApiKey !== 'your_gemini_api_key_here';
+
+    // If no API key is configured, fallback to empty array (the frontend will automatically fallback to client-side suggestions)
+    if (!hasOpenRouter && !hasGemini) {
+      return res.status(200).json({ tips: [] });
+    }
+
+    // Fetch user-specific financial records (strictly scoped to req.user.id)
+    const allIncomes = await Income.find({ userId: req.user.id }).sort({ month: -1 });
+    const allExpenses = await Expense.find({ userId: req.user.id }).sort({ month: -1 });
+    const loans = await Loan.find({ userId: req.user.id, isSettled: false });
+
+    // Prepare system prompts and context details
+    const currency = user.currency || '$';
+    
+    const activeDebtList = loans.filter(l => l.type === 'borrowed').map(l => `${l.borrowerName}: ${currency}${l.amount}`).join(', ');
+    const activeOwedList = loans.filter(l => l.type === 'lent').map(l => `${l.borrowerName}: ${currency}${l.amount}`).join(', ');
+
+    // Group incomes and expenses by month
+    const financialDataByMonth = {};
+
+    allIncomes.forEach(inc => {
+      if (!financialDataByMonth[inc.month]) {
+        financialDataByMonth[inc.month] = { income: 0, sources: [], expenses: [] };
+      }
+      financialDataByMonth[inc.month].income = inc.totalIncome;
+      financialDataByMonth[inc.month].sources = inc.sources.map(s => `${s.sourceName}: ${currency}${s.amount}`);
+    });
+
+    allExpenses.forEach(exp => {
+      if (!financialDataByMonth[exp.month]) {
+        financialDataByMonth[exp.month] = { income: 0, sources: [], expenses: [] };
+      }
+      financialDataByMonth[exp.month].expenses.push(
+        `${exp.title}: ${currency}${exp.amount} [Category: ${exp.category}, Fixed: ${exp.isFixed}, Paid: ${exp.isCompleted}]`
+      );
+    });
+
+    let monthlyBreakdownStr = '';
+    const months = Object.keys(financialDataByMonth).sort().reverse();
+    if (months.length === 0) {
+      monthlyBreakdownStr = 'No income or expense records found.';
+    } else {
+      months.forEach(m => {
+        const data = financialDataByMonth[m];
+        const totalExp = allExpenses.filter(e => e.month === m).reduce((sum, e) => sum + e.amount, 0);
+        const net = data.income - totalExp;
+        monthlyBreakdownStr += `\n### Month: ${m}\n`;
+        monthlyBreakdownStr += `- Total Income: ${currency}${data.income} (Sources: ${data.sources.join(', ') || 'None'})\n`;
+        monthlyBreakdownStr += `- Total Expenses: ${currency}${totalExp} (List: ${data.expenses.join(', ') || 'None'})\n`;
+        monthlyBreakdownStr += `- Net Remaining: ${currency}${net}\n`;
+      });
+    }
+
+    const prompt = `You are Hishab AI, a premium personal finance coach. Based on the user's profile and financial history, generate exactly 4 to 6 highly personalized, actionable financial tips, alerts, or budgeting recommendations.
+The user's name is ${user.username}, their currency is ${currency}, their goal is ${user.financialGoal}, and their monthly loan target payoff is ${currency}${user.monthlyLoanTarget}.
+Here is their full historical financial status by month:
+${monthlyBreakdownStr}
+
+Active Loans (Who they owe money to): ${activeDebtList || 'None'}
+Active Owed to Them (Who owes them money): ${activeOwedList || 'None'}
+
+Return ONLY a raw JSON array matching this exact structure:
+[
+  "First financial tip starting with an appropriate emoji...",
+  "Second financial tip starting with an appropriate emoji...",
+  "Third financial tip starting with an appropriate emoji..."
+]
+Do not enclose the JSON inside markdown code blocks (like \`\`\`json). Just return the raw JSON array string.
+Keep each tip short, crisp, and direct (max 2 sentences). Use the user's currency symbol (${currency}) for all financial numbers.`;
+
+    let replyText = '';
+
+    if (hasOpenRouter) {
+      const apiResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${openrouterApiKey}`,
+          'HTTP-Referer': 'https://github.com/hishab',
+          'X-Title': 'Hishab Personal Finance Coach',
+        },
+        body: JSON.stringify({
+          model: openrouterModel,
+          messages: [
+            {
+              role: 'user',
+              content: prompt
+            }
+          ],
+          max_tokens: 500,
+          temperature: 0.7,
+        })
+      });
+
+      if (!apiResponse.ok) {
+        throw new Error('OpenRouter API returned error ' + apiResponse.status);
+      }
+
+      const responseData = await apiResponse.json();
+      replyText = responseData.choices?.[0]?.message?.content || '[]';
+    } else {
+      // Fallback to Gemini
+      const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiApiKey}`;
+
+      const apiResponse = await fetch(geminiUrl, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                {
+                  text: prompt
+                }
+              ]
+            }
+          ],
+          generationConfig: {
+            maxOutputTokens: 500,
+            temperature: 0.7,
+          }
+        })
+      });
+
+      if (!apiResponse.ok) {
+        throw new Error('Gemini API returned error ' + apiResponse.status);
+      }
+
+      const responseData = await apiResponse.json();
+      replyText = responseData.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
+    }
+
+    let parsedTips = [];
+    try {
+      let cleanText = replyText.trim();
+      if (cleanText.startsWith('```')) {
+        cleanText = cleanText.replace(/^```json\s*/, '').replace(/```$/, '').trim();
+      }
+      parsedTips = JSON.parse(cleanText);
+    } catch (err) {
+      console.error('Failed to parse AI tips output:', replyText);
+      parsedTips = [];
+    }
+
+    res.status(200).json({ tips: parsedTips });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   getAICoachResponse,
   scanReceiptImage,
+  getAICoachTips,
 };

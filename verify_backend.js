@@ -212,6 +212,21 @@ async function testBackend() {
       console.log('✗ Receipt OCR scan failed:', scanData.message);
     }
 
+    // 12b. AI: Get Personalized Tips
+    console.log('\nTesting AI Financial Tips...');
+    const tipsRes = await fetch(`${API_URL}/ai/tips`, { headers });
+    const tipsData = await tipsRes.json();
+    if (tipsRes.ok) {
+      console.log('✓ AI Financial Tips retrieved successfully! Tips count:', tipsData.tips?.length);
+      if (tipsData.tips && tipsData.tips.length > 0) {
+        console.log('  Sample Tip:', tipsData.tips[0]);
+      } else {
+        console.log('  (No active API key / fell back to empty array)');
+      }
+    } else {
+      console.log('✗ AI Financial Tips retrieval failed:', tipsData.message);
+    }
+
     // 13. Groups: Split Budgeting & Simplified Debts
     console.log('\nTesting Group collaborative split-billing...');
     const collabEmail = `collab_${Date.now()}@example.com`;
