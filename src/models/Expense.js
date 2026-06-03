@@ -33,6 +33,11 @@ const ExpenseSchema = new mongoose.Schema({
     enum: ['Food', 'Transport', 'Rent', 'Utilities', 'Entertainment', 'Health', 'Shopping', 'Education', 'Other'],
     default: 'Other',
   },
+  wallet: {
+    type: String,
+    enum: ['Cash', 'Bank', 'Card'],
+    default: 'Cash',
+  },
 }, {
   timestamps: true,
 });

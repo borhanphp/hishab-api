@@ -86,7 +86,7 @@ const getExpenses = async (req, res) => {
 // @route   POST /api/expenses
 // @access  Private
 const addExpenses = async (req, res) => {
-  const { month, title, amount, isFixed, category, expenses } = req.body;
+  const { month, title, amount, isFixed, category, wallet, expenses } = req.body;
 
   if (!month) {
     return res.status(400).json({ message: 'Month is required' });
@@ -111,7 +111,8 @@ const addExpenses = async (req, res) => {
           amount: exp.amount,
           isFixed: !!exp.isFixed,
           isCompleted: false,
-          category: exp.category || 'Other'
+          category: exp.category || 'Other',
+          wallet: exp.wallet || 'Cash'
         };
       });
 
@@ -137,6 +138,7 @@ const addExpenses = async (req, res) => {
       amount,
       isFixed: !!isFixed,
       category: category || 'Other',
+      wallet: wallet || 'Cash',
     });
 
     if (isFixed) {

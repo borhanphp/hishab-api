@@ -100,7 +100,7 @@ const getGroups = async (req, res) => {
 // @route   POST /api/groups/:id/expenses
 // @access  Private
 const addSharedExpense = async (req, res) => {
-  const { title, amount } = req.body;
+  const { title, amount, splits: customSplits } = req.body;
 
   if (!title || !amount || amount <= 0) {
     return res.status(400).json({ message: 'Title and positive amount are required' });
@@ -116,14 +116,45 @@ const addSharedExpense = async (req, res) => {
       return res.status(403).json({ message: 'Not authorized to post to this group' });
     }
 
-    const membersCount = group.members.length;
-    const splitAmount = parseFloat((amount / membersCount).toFixed(2));
+    let splits = [];
 
-    // Create splits (everyone gets splitAmount)
-    const splits = group.members.map(memberId => ({
-      userId: memberId,
-      amount: splitAmount,
-    }));
+    if (customSplits && Array.isArray(customSplits)) {
+      // Validate custom splits sum up to total amount
+      const sumSplits = customSplits.reduce((sum, s) => sum + (parseFloat(s.amount) || 0), 0);
+      if (Math.abs(sumSplits - amount) > 0.1) {
+        return res.status(400).json({
+          message: `The sum of splits (${sumSplits.toFixed(2)}) must match the total bill amount (${amount.toFixed(2)})`
+        });
+      }
+
+      // Verify all split userIds are members of the group
+      const memberIds = group.members.map(m => m.toString());
+      for (const split of customSplits) {
+        if (!memberIds.includes(split.userId)) {
+          return res.status(400).json({
+            message: `User with ID ${split.userId} is not a member of this workspace`
+          });
+        }
+      }
+
+      // Populate splits list
+      splits = group.members.map(memberId => {
+        const found = customSplits.find(s => s.userId.toString() === memberId.toString());
+        return {
+          userId: memberId,
+          amount: found ? parseFloat(parseFloat(found.amount).toFixed(2)) : 0
+        };
+      });
+    } else {
+      const membersCount = group.members.length;
+      const splitAmount = parseFloat((amount / membersCount).toFixed(2));
+
+      // Create splits (everyone gets splitAmount)
+      splits = group.members.map(memberId => ({
+        userId: memberId,
+        amount: splitAmount,
+      }));
+    }
 
     const newExpense = {
       title,

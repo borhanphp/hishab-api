@@ -10,44 +10,181 @@ const getCurrentMonth = () => {
 };
 
 // Generate a rule-based mock response if no API key is set
-const generateMockResponse = (user, income, expenses, loans, userMessage) => {
+const generateMockResponse = (user, allIncomes, allExpenses, loans, userMessage) => {
   const currency = user.currency || '$';
   const name = user.username;
   const goal = user.financialGoal;
   const target = user.monthlyLoanTarget;
-  
-  const totalIncome = income?.totalIncome || 0;
-  const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
-  const remaining = totalIncome - totalExpenses;
-
-  const activeDebt = loans.filter(l => l.type === 'borrowed').reduce((sum, l) => sum + l.amount, 0);
-  const activeLent = loans.filter(l => l.type === 'lent').reduce((sum, l) => sum + l.amount, 0);
-
   const msgLower = userMessage.toLowerCase();
 
-  if (msgLower.includes('loan') || msgLower.includes('debt') || msgLower.includes('owe') || goal === 'debt-free') {
-    if (activeDebt > 0) {
-      const timeLineStr = target > 0 
-        ? `If you dedicate your target payoff budget of ${currency}${target}/month, you can clear this in about ${Math.ceil(activeDebt / target)} months.`
-        : remaining > 0 
-          ? `At your current savings surplus of ${currency}${remaining.toLocaleString()}/month, you can be debt-free in about ${Math.ceil(activeDebt / remaining)} months.`
-          : 'Currently, your monthly budget is negative or zero, meaning you do not have spare cash. Try cutting down some variable expenses to create a repayment buffer.';
-
-      return `Hello ${name}! I see you have an active debt of ${currency}${activeDebt.toLocaleString()} you want to overcome. ${timeLineStr}\n\nI recommend using the **Debt Snowball method** (paying off the smallest loan first to build psychological momentum) or the **Debt Avalanche method** (focusing on the highest interest rate debt first to save money). Since your goal is to be debt-free, make this your primary focus before allocating funds to stock market investments!`;
+  // 1. Group incomes and expenses by month
+  const financialDataByMonth = {};
+  
+  allIncomes.forEach(inc => {
+    if (!financialDataByMonth[inc.month]) {
+      financialDataByMonth[inc.month] = { income: 0, sources: [], expenses: [] };
     }
-    return `Hi ${name}! You currently have no outstanding debts recorded in your loan ledger. That's a great position to be in! You can focus on building your wealth or high-yield savings. If you decide to lend money in the future, be sure to log it so we can keep track of who owes you.`;
+    financialDataByMonth[inc.month].income = inc.totalIncome;
+    financialDataByMonth[inc.month].sources = inc.sources || [];
+  });
+
+  allExpenses.forEach(exp => {
+    if (!financialDataByMonth[exp.month]) {
+      financialDataByMonth[exp.month] = { income: 0, sources: [], expenses: [] };
+    }
+    financialDataByMonth[exp.month].expenses.push(exp);
+  });
+
+  // Calculate stats for current month (default)
+  const d = new Date();
+  const currentMonth = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  const currentData = financialDataByMonth[currentMonth] || { income: 0, sources: [], expenses: [] };
+  const currentIncome = currentData.income;
+  const currentExpenses = currentData.expenses.reduce((sum, e) => sum + e.amount, 0);
+  const currentRemaining = currentIncome - currentExpenses;
+
+  // Calculate active loan summaries
+  const activeBorrowedList = loans.filter(l => !l.isSettled && l.type === 'borrowed');
+  const activeLentList = loans.filter(l => !l.isSettled && l.type === 'lent');
+  
+  const totalBorrowed = activeBorrowedList.reduce((sum, l) => sum + l.amount, 0);
+  const totalBorrowedPaid = activeBorrowedList.reduce((sum, l) => {
+    const paid = l.payments ? l.payments.reduce((s, p) => s + p.amount, 0) : 0;
+    return sum + paid;
+  }, 0);
+  const remainingBorrowed = totalBorrowed - totalBorrowedPaid;
+
+  const totalLent = activeLentList.reduce((sum, l) => sum + l.amount, 0);
+  const totalLentPaid = activeLentList.reduce((sum, l) => {
+    const paid = l.payments ? l.payments.reduce((s, p) => s + p.amount, 0) : 0;
+    return sum + paid;
+  }, 0);
+  const remainingLent = totalLent - totalLentPaid;
+
+  // Helper to format months nicely, e.g. "2026-05" -> "May 2026"
+  const formatMonthName = (monthStr) => {
+    const [year, m] = monthStr.split('-');
+    const date = new Date(year, parseInt(m) - 1, 1);
+    return date.toLocaleDateString('default', { month: 'long', year: 'numeric' });
+  };
+
+  // Check 1: User asks for a specific month (e.g. "May", "June", "2026-05")
+  const monthsKeys = Object.keys(financialDataByMonth);
+  const monthMatch = monthsKeys.find(m => msgLower.includes(m.toLowerCase()) || msgLower.includes(formatMonthName(m).toLowerCase()));
+  if (monthMatch) {
+    const mData = financialDataByMonth[monthMatch];
+    const totalExp = mData.expenses.reduce((sum, e) => sum + e.amount, 0);
+    const net = mData.income - totalExp;
+    
+    // Category summary for that month
+    const catMap = {};
+    mData.expenses.forEach(e => {
+      catMap[e.category] = (catMap[e.category] || 0) + e.amount;
+    });
+    const highestCat = Object.keys(catMap).sort((a, b) => catMap[b] - catMap[a])[0];
+
+    return `Sure ${name}, looking at your record for **${formatMonthName(monthMatch)}**:\n\n` +
+      `- **Total Income**: ${currency}${mData.income.toLocaleString()} (${mData.sources.length} sources)\n` +
+      `- **Total Expenses**: ${currency}${totalExp.toLocaleString()} (${mData.expenses.length} logs)\n` +
+      `- **Net Savings**: ${currency}${net.toLocaleString()} (${mData.income > 0 ? Math.round((net / mData.income) * 100) : 0}% savings rate)\n` +
+      (highestCat ? `- **Top Expense Category**: ${highestCat} (${currency}${catMap[highestCat].toLocaleString()})\n\n` : '\n') +
+      `Your cash flow for this month was ${net >= 0 ? 'positive, which is great!' : 'negative. Try reviewing the logs to balance your future accounts.'}`;
   }
 
-  if (msgLower.includes('invest') || msgLower.includes('stock') || msgLower.includes('save') || goal === 'investing') {
-    if (remaining > 0) {
-      const rate = Math.round((remaining / totalIncome) * 100);
-      return `Hi ${name}! You are saving ${currency}${remaining.toLocaleString()} this month, which is a solid ${rate}% savings rate! Since your goal is ${goal === 'investing' ? 'Investing' : 'Savings'}, I recommend building a 3-month emergency fund first in a High-Yield Savings Account. Once that is set, look into index funds (like S&P 500 tracking ETFs) for passive long-term compounding.`;
+  // Check 2: User asks about active loans, debt, or who owes whom
+  if (msgLower.includes('loan') || msgLower.includes('debt') || msgLower.includes('owe') || msgLower.includes('borrow') || msgLower.includes('lend') || msgLower.includes('pay')) {
+    let reply = `Here is your current active loans breakdown, ${name}:\n\n`;
+    
+    if (activeBorrowedList.length > 0) {
+      reply += `**Debts you owe others (Total remaining: ${currency}${remainingBorrowed.toLocaleString()}):**\n`;
+      activeBorrowedList.forEach(l => {
+        const paid = l.payments ? l.payments.reduce((s, p) => s + p.amount, 0) : 0;
+        reply += `- **${l.borrowerName}**: You borrowed ${currency}${l.amount.toLocaleString()} (Paid: ${currency}${paid.toLocaleString()}, Remaining: ${currency}${(l.amount - paid).toLocaleString()})\n`;
+      });
+    } else {
+      reply += `✓ You currently have no outstanding debts owed to others.\n`;
     }
-    return `Hello ${name}. Currently, your budget is at a deficit of ${currency}${Math.abs(remaining).toLocaleString()} (Income: ${currency}${totalIncome.toLocaleString()}, Expenses: ${currency}${totalExpenses.toLocaleString()}). Before starting an investment plan, we need to bring your cash flow positive. Review your variable expenses this week to see where we can save!`;
+    
+    reply += `\n`;
+
+    if (activeLentList.length > 0) {
+      reply += `**Money owed to you by contacts (Total remaining: ${currency}${remainingLent.toLocaleString()}):**\n`;
+      activeLentList.forEach(l => {
+        const paid = l.payments ? l.payments.reduce((s, p) => s + p.amount, 0) : 0;
+        reply += `- **${l.borrowerName}**: You lent them ${currency}${l.amount.toLocaleString()} (Collected: ${currency}${paid.toLocaleString()}, Remaining: ${currency}${(l.amount - paid).toLocaleString()})\n`;
+      });
+    } else {
+      reply += `✓ No contacts currently owe you money.\n`;
+    }
+
+    if (remainingBorrowed > 0) {
+      const timeLine = target > 0 
+        ? `With your target payoff rate of **${currency}${target}/month**, you should be completely debt-free in about **${Math.ceil(remainingBorrowed / target)} months**.`
+        : currentRemaining > 0 
+          ? `Based on your current month's remaining cash of **${currency}${currentRemaining.toLocaleString()}/month**, you can clear this in about **${Math.ceil(remainingBorrowed / currentRemaining)} months**.`
+          : `Since you don't have active monthly savings, consider defining a Monthly Loan Payoff budget in Settings to structure your path to becoming debt-free.`;
+      reply += `\n🎯 **Repayment Plan**: ${timeLine}`;
+    }
+
+    return reply;
   }
 
-  // General fallback response
-  return `Hi ${name}, I am your Hishab AI Financial Coach! I've analyzed your logs for ${getCurrentMonth()}:\n\n- **Income**: ${currency}${totalIncome.toLocaleString()}\n- **Expenses**: ${currency}${totalExpenses.toLocaleString()}\n- **Remaining Balance**: ${currency}${remaining.toLocaleString()}\n- **Active Debt Owed**: ${currency}${activeDebt.toLocaleString()}\n\nWhat would you like to achieve today? Ask me about debt payoff strategies, saving tips, or how to allocate your monthly remaining cash! *(Note: Connect an OpenRouter API Key in your backend .env file to enable full conversational intelligence!)*`;
+  // Check 3: User asks about spending categories or where their money goes
+  if (msgLower.includes('category') || msgLower.includes('categories') || msgLower.includes('spend') || msgLower.includes('spent') || msgLower.includes('expense') || msgLower.includes('expenses')) {
+    if (currentData.expenses.length === 0) {
+      return `Hi ${name}, you haven't logged any expenses for the current month (${formatMonthName(currentMonth)}) yet. Please add your daily expenses to see a categorized breakdown!`;
+    }
+
+    const catMap = {};
+    currentData.expenses.forEach(e => {
+      catMap[e.category] = (catMap[e.category] || 0) + e.amount;
+    });
+
+    const sortedCats = Object.keys(catMap).sort((a, b) => catMap[b] - catMap[a]);
+    let breakdown = `Here is your spending category breakdown for **${formatMonthName(currentMonth)}**:\n\n`;
+    sortedCats.forEach(cat => {
+      const pct = currentExpenses > 0 ? Math.round((catMap[cat] / currentExpenses) * 100) : 0;
+      breakdown += `- **${cat}**: ${currency}${catMap[cat].toLocaleString()} (${pct}%)\n`;
+    });
+
+    const fixedExpenses = currentData.expenses.filter(e => e.isFixed);
+    const fixedTotal = fixedExpenses.reduce((sum, e) => sum + e.amount, 0);
+    breakdown += `\nYour **fixed expenses** (bills, rent, etc.) make up ${currency}${fixedTotal.toLocaleString()} (${currentExpenses > 0 ? Math.round((fixedTotal / currentExpenses) * 100) : 0}% of total spending). The rest is variable. Try cutting down on the highest categories next week!`;
+    
+    return breakdown;
+  }
+
+  // Check 4: User asks for savings tips, advice, or goals
+  if (msgLower.includes('tip') || msgLower.includes('save') || msgLower.includes('budget') || msgLower.includes('advice') || msgLower.includes('invest') || msgLower.includes('plan')) {
+    if (currentRemaining > 0) {
+      const rate = Math.round((currentRemaining / currentIncome) * 100);
+      let strategyTip = '';
+      if (goal === 'savings') {
+        strategyTip = `Since your primary goal is **Savings**, focus on building a solid 3 to 6-month emergency buffer in a secure high-yield account before investing in riskier assets.`;
+      } else if (goal === 'investing') {
+        strategyTip = `With your goal set to **Investing**, once you have a small emergency buffer, look into long-term dollar-cost averaging (DCA) into broad-market index funds (like S&P 500 ETFs) to harness compounding.`;
+      } else if (goal === 'debt-free') {
+        strategyTip = `Since your goal is to be **Debt-Free**, allocate this surplus of ${currency}${currentRemaining.toLocaleString()} to clear your remaining debts of ${currency}${remainingBorrowed.toLocaleString()} rather than investing it.`;
+      } else {
+        strategyTip = `With a balanced strategy, you can split your remaining balance 50/50 between liquid cash savings and long-term investments.`;
+      }
+
+      return `Hi ${name}! You are currently saving **${currency}${currentRemaining.toLocaleString()}** (a **${rate}%** savings rate) from your monthly income of ${currency}${currentIncome.toLocaleString()}.\n\n💡 **AI Advice**: ${strategyTip}\n\nTo increase this rate, review your top variable categories and try setting a monthly budget constraint on the dashboard.`;
+    } else {
+      const deficit = Math.abs(currentRemaining);
+      return `Hello ${name}. Currently, your budget is at a deficit of **${currency}${deficit.toLocaleString()}** this month (Income: ${currency}${currentIncome.toLocaleString()}, Expenses: ${currency}${currentExpenses.toLocaleString()}).\n\n⚠️ **Action Plan**: Before creating any investment or savings plan, we need to balance your cash flow. Review your variable expenses this week to see where you can trim costs by at least ${currency}${deficit.toLocaleString()} to break even.`;
+    }
+  }
+
+  // General Status Overview (Fallback)
+  const rate = currentIncome > 0 ? Math.round((currentRemaining / currentIncome) * 100) : 0;
+  return `Hi ${name}! I've analyzed your financial logs and here is your status for **${formatMonthName(currentMonth)}**:\n\n` +
+    `- **Total Income**: ${currency}${currentIncome.toLocaleString()}\n` +
+    `- **Total Expenses**: ${currency}${currentExpenses.toLocaleString()}\n` +
+    `- **Monthly Savings**: ${currency}${currentRemaining.toLocaleString()} (${rate}% savings rate)\n` +
+    `- **Outstanding Debts**: ${currency}${remainingBorrowed.toLocaleString()}\n` +
+    `- **Money Owed to You**: ${currency}${remainingLent.toLocaleString()}\n\n` +
+    `Ask me details about your **budget**, specific **months** (e.g., "May 2026"), **loans/debts**, or **category breakdowns** to get customized analysis!`;
 };
 
 // @desc    Generate AI coaching chat response
@@ -79,10 +216,10 @@ const getAICoachResponse = async (req, res) => {
 
     // If no API key is configured, fallback to rule-based mock advisor
     if (!hasOpenRouter && !hasGemini) {
-      const income = await Income.findOne({ userId: req.user.id, month: currentMonth });
-      const expenses = await Expense.find({ userId: req.user.id, month: currentMonth });
-      const loans = await Loan.find({ userId: req.user.id, isSettled: false });
-      const mockReply = generateMockResponse(user, income, expenses, loans, message);
+      const allIncomes = await Income.find({ userId: req.user.id }).sort({ month: -1 });
+      const allExpenses = await Expense.find({ userId: req.user.id }).sort({ month: -1 });
+      const loans = await Loan.find({ userId: req.user.id });
+      const mockReply = generateMockResponse(user, allIncomes, allExpenses, loans, message);
       return res.status(200).json({ reply: mockReply });
     }
 
@@ -253,9 +390,19 @@ const scanReceiptImage = async (req, res) => {
     const randomMerchant = merchants[Math.floor(Math.random() * merchants.length)];
     const randomAmount = parseFloat((Math.random() * 45 + 5).toFixed(2));
     const currentMonth = new Date().toISOString().substring(0, 7); // YYYY-MM
+    
+    const catMap = {
+      'Walmart Store': 'Shopping',
+      'McDonalds': 'Food',
+      'Gas Station': 'Transport',
+      'Uber Ride': 'Transport',
+      'Coffee Shop': 'Food'
+    };
+
     return res.status(200).json({
       title: randomMerchant,
       amount: randomAmount,
+      category: catMap[randomMerchant] || 'Other',
       date: currentMonth,
       isMock: true,
     });
@@ -272,10 +419,11 @@ const scanReceiptImage = async (req, res) => {
       cleanBase64 = parts[1];
     }
 
-    const prompt = `You are a professional receipt scanner tool. Read this receipt image and extract the merchant/store name and the total final charge amount. Return ONLY a raw JSON block matching this exact structure:
+    const prompt = `You are a professional receipt scanner tool. Read this receipt image and extract the merchant/store name, the total final charge amount, and classify the expense into one of these categories: ['Food', 'Transport', 'Rent', 'Utilities', 'Entertainment', 'Health', 'Shopping', 'Education', 'Other']. Return ONLY a raw JSON block matching this exact structure:
 {
   "title": "Name of the merchant",
-  "amount": 25.50
+  "amount": 25.50,
+  "category": "Food"
 }
 Do not enclose the JSON inside markdown code blocks (like \`\`\`json). Just return the raw JSON string. If you cannot read the merchant name or total, make a best guess. Keep the title short (2-3 words).`;
 
@@ -310,7 +458,7 @@ Do not enclose the JSON inside markdown code blocks (like \`\`\`json). Just retu
     const responseData = await apiResponse.json();
     const replyText = responseData.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
-    let parsedData = { title: 'Receipt Entry', amount: 0 };
+    let parsedData = { title: 'Receipt Entry', amount: 0, category: 'Other' };
     try {
       let cleanText = replyText.trim();
       if (cleanText.startsWith('```')) {
@@ -324,6 +472,7 @@ Do not enclose the JSON inside markdown code blocks (like \`\`\`json). Just retu
     res.status(200).json({
       title: parsedData.title || 'Receipt Entry',
       amount: parsedData.amount || 0,
+      category: parsedData.category || 'Other',
       date: new Date().toISOString().substring(0, 7),
     });
   } catch (error) {

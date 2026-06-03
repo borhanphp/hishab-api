@@ -32,6 +32,17 @@ const LoanSchema = new mongoose.Schema({
   settledDate: {
     type: Date,
   },
+  payments: [{
+    amount: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+    date: {
+      type: Date,
+      default: Date.now,
+    }
+  }],
 }, {
   timestamps: true,
 });

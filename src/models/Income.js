@@ -15,6 +15,11 @@ const IncomeSourceSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  wallet: {
+    type: String,
+    enum: ['Cash', 'Bank', 'Card'],
+    default: 'Cash',
+  },
 });
 
 const IncomeSchema = new mongoose.Schema({
