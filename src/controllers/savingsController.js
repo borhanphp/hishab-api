@@ -59,6 +59,7 @@ const updateGoal = async (req, res) => {
     if (typeof currentAmount === 'number' && currentAmount >= 0) goal.currentAmount = currentAmount;
     if (typeof addAmount === 'number' && addAmount > 0) goal.currentAmount += addAmount;
     if (deadline !== undefined) goal.deadline = deadline;
+    if (req.body.isPublic !== undefined) goal.isPublic = req.body.isPublic;
 
     const updatedGoal = await goal.save();
     res.status(200).json(updatedGoal);

@@ -43,9 +43,26 @@ const UserSchema = new mongoose.Schema({
     type: Number,
     default: 0,
   },
+  riskProfile: {
+    type: String,
+    enum: ['none', 'conservative', 'moderate', 'aggressive'],
+    default: 'none',
+  },
+  simulatedBalance: {
+    type: Number,
+    default: 10000,
+  },
   enableNotifications: {
     type: Boolean,
     default: true,
+  },
+  affiliateClicksCount: {
+    type: Number,
+    default: 0,
+  },
+  affiliateRevenueEarned: {
+    type: Number,
+    default: 0,
   },
   resetPasswordToken: {
     type: String,

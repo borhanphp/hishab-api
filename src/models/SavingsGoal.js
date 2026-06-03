@@ -29,6 +29,14 @@ const SavingsGoalSchema = new mongoose.Schema({
     type: Boolean,
     default: false,
   },
+  isPublic: {
+    type: Boolean,
+    default: false,
+  },
+  cheers: [{
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+  }],
 }, {
   timestamps: true,
 });

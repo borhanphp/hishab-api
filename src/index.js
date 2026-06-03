@@ -25,6 +25,9 @@ app.use('/api/ai', require('./routes/aiRoutes'));
 app.use('/api/groups', require('./routes/groupRoutes'));
 app.use('/api/savings', require('./routes/savingsRoutes'));
 app.use('/api/export', require('./routes/exportRoutes'));
+app.use('/api/simulator', require('./routes/simulatorRoutes'));
+app.use('/api/social', require('./routes/socialRoutes'));
+app.use('/api/marketplace', require('./routes/marketplaceRoutes'));
 
 // Basic health check route
 app.get('/health', (req, res) => {
@@ -45,3 +48,4 @@ const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`Server running in ${process.env.NODE_ENV || 'development'} mode on port ${PORT}`);
 });
+

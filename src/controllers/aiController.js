@@ -654,8 +654,294 @@ Keep each tip short, crisp, and direct (max 2 sentences). Use the user's currenc
   }
 };
 
+// Helper to mock parsing of text commands
+const parseTextMock = (text) => {
+  const clean = text.toLowerCase();
+  let amount = 0;
+  let title = 'Expense';
+  let category = 'Other';
+
+  // Try to find amount: e.g. "$25", "25 dollars", "spent 25", "spent 25.50"
+  const amountMatch = clean.match(/(?:\$|spent\s*|amount\s*|for\s*|cost\s*|costs\s*|of\s*)?(\d+(?:\.\d+)?)(?:\s*(?:dollars|bucks|usd|৳|tk|euros|pounds))?/i);
+  if (amountMatch) {
+    amount = parseFloat(amountMatch[1]);
+  }
+
+  // Try to guess category and title
+  if (clean.includes('lunch') || clean.includes('dinner') || clean.includes('food') || clean.includes('eat') || clean.includes('restaurant') || clean.includes('mcdonald') || clean.includes('burger') || clean.includes('pizza') || clean.includes('coffee') || clean.includes('starbucks')) {
+    title = clean.includes('coffee') || clean.includes('starbucks') ? "Coffee Run" : "Food / Dining";
+    category = "Food";
+  } else if (clean.includes('taxi') || clean.includes('cab') || clean.includes('uber') || clean.includes('gas') || clean.includes('fuel') || clean.includes('bus') || clean.includes('ride') || clean.includes('transport')) {
+    title = clean.includes('gas') || clean.includes('fuel') ? "Gas Fillup" : "Transport Ride";
+    category = "Transport";
+  } else if (clean.includes('rent') || clean.includes('apartment') || clean.includes('flat') || clean.includes('stay')) {
+    title = "House Rent";
+    category = "Rent";
+  } else if (clean.includes('bill') || clean.includes('electricity') || clean.includes('water') || clean.includes('internet') || clean.includes('wifi') || clean.includes('utility')) {
+    title = clean.includes('internet') || clean.includes('wifi') ? "Internet Bill" : "Utility Bill";
+    category = "Utilities";
+  } else if (clean.includes('movie') || clean.includes('netflix') || clean.includes('spotify') || clean.includes('game') || clean.includes('play') || clean.includes('show') || clean.includes('cinema')) {
+    title = clean.includes('netflix') ? "Netflix Subscription" : "Entertainment";
+    category = "Entertainment";
+  } else if (clean.includes('doctor') || clean.includes('medicine') || clean.includes('health') || clean.includes('clinic') || clean.includes('pharma') || clean.includes('dentist')) {
+    title = "Medical / Health";
+    category = "Health";
+  } else if (clean.includes('shop') || clean.includes('buy') || clean.includes('store') || clean.includes('amazon') || clean.includes('target') || clean.includes('clothing') || clean.includes('groceries')) {
+    title = "Shopping Entry";
+    category = "Shopping";
+  } else if (clean.includes('course') || clean.includes('book') || clean.includes('school') || clean.includes('tuition') || clean.includes('class')) {
+    title = "Education / Study";
+    category = "Education";
+  }
+
+  // Extract a sensible merchant title if we can find words
+  // e.g. "spent 25 at Walmart" -> Walmart
+  const atMatch = clean.match(/(?:at|in|on)\s+([a-z0-9\s]+?)(?:\s+today|\s+yesterday|\s*[\.\,\!]|$)/i);
+  if (atMatch && atMatch[1].trim().length > 0) {
+    const candidate = atMatch[1].trim();
+    // Capitalize first letters
+    title = candidate.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+  }
+
+  return { title, amount, category, isMock: true };
+};
+
+// Helper to mock categorization of titles
+const categorizeTitleMock = (title) => {
+  const clean = title.toLowerCase().trim();
+  if (clean.includes('mcdonald') || clean.includes('burger') || clean.includes('coffee') || clean.includes('starbucks') || clean.includes('food') || clean.includes('dining') || clean.includes('restaurant') || clean.includes('pizza') || clean.includes('kfc') || clean.includes('subway') || clean.includes('dinner') || clean.includes('lunch') || clean.includes('breakfast')) {
+    return "Food";
+  }
+  if (clean.includes('uber') || clean.includes('lyft') || clean.includes('taxi') || clean.includes('gas') || clean.includes('fuel') || clean.includes('train') || clean.includes('metro') || clean.includes('bus') || clean.includes('ride') || clean.includes('transportation')) {
+    return "Transport";
+  }
+  if (clean.includes('rent') || clean.includes('flat') || clean.includes('hostel') || clean.includes('stay') || clean.includes('apartment') || clean.includes('housing')) {
+    return "Rent";
+  }
+  if (clean.includes('electricity') || clean.includes('water') || clean.includes('internet') || clean.includes('wifi') || clean.includes('power') || clean.includes('utility') || clean.includes('gas bill') || clean.includes('bills')) {
+    return "Utilities";
+  }
+  if (clean.includes('netflix') || clean.includes('spotify') || clean.includes('disney') || clean.includes('hulu') || clean.includes('movie') || clean.includes('cinema') || clean.includes('game') || clean.includes('steam') || clean.includes('nintendo') || clean.includes('xbox') || clean.includes('playstation')) {
+    return "Entertainment";
+  }
+  if (clean.includes('pharmacy') || clean.includes('doctor') || clean.includes('hospital') || clean.includes('medicine') || clean.includes('dentist') || clean.includes('clinic') || clean.includes('health') || clean.includes('vitamin') || clean.includes('pharma')) {
+    return "Health";
+  }
+  if (clean.includes('shopping') || clean.includes('amazon') || clean.includes('walmart') || clean.includes('grocery') || clean.includes('groceries') || clean.includes('target') || clean.includes('clothing') || clean.includes('mall') || clean.includes('buy') || clean.includes('purchase')) {
+    return "Shopping";
+  }
+  if (clean.includes('book') || clean.includes('tuition') || clean.includes('course') || clean.includes('school') || clean.includes('college') || clean.includes('udemy') || clean.includes('coursera') || clean.includes('education') || clean.includes('class') || clean.includes('lecture')) {
+    return "Education";
+  }
+  return "Other";
+};
+
+// @desc    Parse natural language text command into expense details
+// @route   POST /api/ai/parse-text
+// @access  Private
+const parseTextCommand = async (req, res) => {
+  const { text } = req.body;
+  if (!text) {
+    return res.status(400).json({ message: 'Text command is required' });
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (!apiKey || apiKey === 'your_gemini_api_key_here') {
+    const mockResult = parseTextMock(text);
+    return res.status(200).json(mockResult);
+  }
+
+  try {
+    const prompt = `You are a smart personal finance parser. Read this text message and extract the expense details (merchant/title, total amount, and category). The allowed categories are: ['Food', 'Transport', 'Rent', 'Utilities', 'Entertainment', 'Health', 'Shopping', 'Education', 'Other']. Return ONLY a raw JSON block matching this exact structure:
+{
+  "title": "Expense Title",
+  "amount": 25.50,
+  "category": "Food"
+}
+Do not enclose the JSON inside markdown code blocks (like \`\`\`json). Just return the raw JSON string. If you cannot extract or guess the fields, return default values. Text command: "${text}"`;
+
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
+    const apiResponse = await fetch(geminiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: 200, temperature: 0.2 }
+      })
+    });
+
+    if (!apiResponse.ok) {
+      throw new Error('Gemini API returned error ' + apiResponse.status);
+    }
+
+    const responseData = await apiResponse.json();
+    const replyText = responseData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    
+    let parsedData = { title: 'Expense Entry', amount: 0, category: 'Other' };
+    try {
+      let cleanText = replyText.trim();
+      if (cleanText.startsWith('```')) {
+        cleanText = cleanText.replace(/^```json\s*/, '').replace(/```$/, '').trim();
+      }
+      parsedData = JSON.parse(cleanText);
+    } catch (err) {
+      console.error('Failed to parse Gemini text parse output:', replyText);
+    }
+
+    res.status(200).json({
+      title: parsedData.title || 'Expense Entry',
+      amount: parsedData.amount || 0,
+      category: parsedData.category || 'Other'
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Parse audio voice command (base64) into expense details
+// @route   POST /api/ai/parse-voice
+// @access  Private
+const parseVoiceCommand = async (req, res) => {
+  const { audioBase64, mimeType } = req.body;
+  if (!audioBase64) {
+    return res.status(400).json({ message: 'Audio base64 data is required' });
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (!apiKey || apiKey === 'your_gemini_api_key_here') {
+    // Return a mock result after small delay
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    return res.status(200).json({
+      title: 'Voice Expense (Mock)',
+      amount: 25.00,
+      category: 'Food',
+      isMock: true
+    });
+  }
+
+  try {
+    let cleanBase64 = audioBase64;
+    if (audioBase64.includes(';base64,')) {
+      const parts = audioBase64.split(';base64,');
+      cleanBase64 = parts[1];
+    }
+
+    const prompt = `You are a smart personal finance voice assistant. Listen to this voice note and extract the expense details (merchant/title, total amount, and category). The allowed categories are: ['Food', 'Transport', 'Rent', 'Utilities', 'Entertainment', 'Health', 'Shopping', 'Education', 'Other']. Return ONLY a raw JSON block matching this exact structure:
+{
+  "title": "Expense Title",
+  "amount": 25.50,
+  "category": "Food"
+}
+Do not enclose the JSON inside markdown code blocks (like \`\`\`json). Just return the raw JSON string. If you cannot hear or extract the fields, guess based on context.`;
+
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const actualMimeType = mimeType || 'audio/mp4';
+
+    const apiResponse = await fetch(geminiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [
+          {
+            parts: [
+              { text: prompt },
+              {
+                inlineData: {
+                  mimeType: actualMimeType,
+                  data: cleanBase64
+                }
+              }
+            ]
+          }
+        ],
+        generationConfig: { maxOutputTokens: 200, temperature: 0.2 }
+      })
+    });
+
+    if (!apiResponse.ok) {
+      throw new Error('Gemini API returned error ' + apiResponse.status);
+    }
+
+    const responseData = await apiResponse.json();
+    const replyText = responseData.candidates?.[0]?.content?.parts?.[0]?.text || '';
+    
+    let parsedData = { title: 'Voice Expense', amount: 0, category: 'Other' };
+    try {
+      let cleanText = replyText.trim();
+      if (cleanText.startsWith('```')) {
+        cleanText = cleanText.replace(/^```json\s*/, '').replace(/```$/, '').trim();
+      }
+      parsedData = JSON.parse(cleanText);
+    } catch (err) {
+      console.error('Failed to parse Gemini voice parse output:', replyText);
+    }
+
+    res.status(200).json({
+      title: parsedData.title || 'Voice Expense',
+      amount: parsedData.amount || 0,
+      category: parsedData.category || 'Other'
+    });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Auto-categorize expense based on merchant/title
+// @route   POST /api/ai/categorize
+// @access  Private
+const categorizeTitle = async (req, res) => {
+  const { title } = req.body;
+  if (!title) {
+    return res.status(400).json({ message: 'Title is required' });
+  }
+
+  const apiKey = process.env.GEMINI_API_KEY;
+
+  if (!apiKey || apiKey === 'your_gemini_api_key_here') {
+    const mockCategory = categorizeTitleMock(title);
+    return res.status(200).json({ category: mockCategory });
+  }
+
+  try {
+    const prompt = `Classify this merchant/expense title: "${title}" into exactly one of these categories: ['Food', 'Transport', 'Rent', 'Utilities', 'Entertainment', 'Health', 'Shopping', 'Education', 'Other']. Return ONLY the category name. Do not return any other text, quotes, markdown, or explanation. Just the raw string.`;
+
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+
+    const apiResponse = await fetch(geminiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { maxOutputTokens: 20, temperature: 0.1 }
+      })
+    });
+
+    if (!apiResponse.ok) {
+      throw new Error('Gemini API returned error ' + apiResponse.status);
+    }
+
+    const responseData = await apiResponse.json();
+    const category = (responseData.candidates?.[0]?.content?.parts?.[0]?.text || 'Other').trim();
+    
+    // Validate returned category is in standard list
+    const allowed = ['Food', 'Transport', 'Rent', 'Utilities', 'Entertainment', 'Health', 'Shopping', 'Education', 'Other'];
+    const matched = allowed.find(c => c.toLowerCase() === category.toLowerCase()) || 'Other';
+
+    res.status(200).json({ category: matched });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
+};
+
 module.exports = {
   getAICoachResponse,
   scanReceiptImage,
   getAICoachTips,
+  parseTextCommand,
+  parseVoiceCommand,
+  categorizeTitle,
 };
+

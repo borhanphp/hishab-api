@@ -92,7 +92,7 @@ const getMe = async (req, res) => {
 // @route   PUT /api/auth/profile
 // @access  Private
 const updateProfile = async (req, res) => {
-  const { username, currency, profilePhoto, monthlyLoanTarget, financialGoal, monthlyBudget, enableNotifications } = req.body;
+  const { username, currency, profilePhoto, monthlyLoanTarget, financialGoal, monthlyBudget, enableNotifications, riskProfile } = req.body;
 
   try {
     const user = await User.findById(req.user.id);
@@ -107,6 +107,7 @@ const updateProfile = async (req, res) => {
     if (financialGoal) user.financialGoal = financialGoal;
     if (typeof monthlyBudget === 'number') user.monthlyBudget = monthlyBudget;
     if (typeof enableNotifications === 'boolean') user.enableNotifications = enableNotifications;
+    if (riskProfile) user.riskProfile = riskProfile;
 
     const updatedUser = await user.save();
     
@@ -120,6 +121,7 @@ const updateProfile = async (req, res) => {
       financialGoal: updatedUser.financialGoal,
       monthlyBudget: updatedUser.monthlyBudget,
       enableNotifications: updatedUser.enableNotifications,
+      riskProfile: updatedUser.riskProfile,
     });
   } catch (error) {
     res.status(500).json({ message: error.message });
