@@ -245,10 +245,10 @@ const trackAffiliateClick = async (req, res) => {
   }
 };
 
-// @desc    Check Loan Eligibility against current finances
-// @route   POST /api/marketplace/check-eligibility
+// @desc    Simulate Loan Affordability against current finances
+// @route   POST /api/marketplace/simulate-affordability
 // @access  Private
-const checkLoanEligibility = async (req, res) => {
+const simulateAffordability = async (req, res) => {
   const { requestedAmount } = req.body;
   const principal = parseFloat(requestedAmount);
 
@@ -291,38 +291,38 @@ const checkLoanEligibility = async (req, res) => {
     const monthlyExpensesBenchmark = monthlyExpenses > 0 ? monthlyExpenses : 1200;
     const savingsBufferMonths = totalSavings / monthlyExpensesBenchmark;
 
-    let status = 'Declined';
+    let status = 'High Risk';
     let estimatedRate = 'N/A';
     const diagnostics = [];
 
     // Evaluate eligibility
     if (monthlyIncome <= 0) {
-      status = 'Declined';
+      status = 'High Risk';
       diagnostics.push('❌ No active monthly income history detected. Please log your income.');
     } else if (proposedRepayment > monthlySurplus) {
-      status = 'Declined';
+      status = 'High Risk';
       diagnostics.push(`❌ Proposed monthly repayment of $${proposedRepayment.toFixed(2)} exceeds your monthly cash flow surplus ($${monthlySurplus.toFixed(2)}).`);
       diagnostics.push('💡 Tip: Try lowering the requested loan amount or reducing variable expenses.');
     } else if (proposedDti > 0.5) {
-      status = 'Declined';
+      status = 'High Risk';
       diagnostics.push(`❌ Proposed debt-to-income (DTI) ratio (${Math.round(proposedDti * 100)}%) exceeds the safe risk limit of 50%.`);
       diagnostics.push(`💡 Tip: Settle your outstanding debts of $${totalBorrowed.toLocaleString()} before taking new loans.`);
     } else if (proposedDti < 0.25 && monthlySurplus >= proposedRepayment * 1.5 && savingsBufferMonths >= 1.5) {
-      status = 'Approved';
+      status = 'Low Risk';
       estimatedRate = '7.49% - 9.25% APR';
-      diagnostics.push('✅ Approved under premium interest rates!');
+      diagnostics.push('✅ Cash-flow matches premium loan ranges under standard projections.');
       diagnostics.push(`📊 Safe Debt-to-Income (DTI) index of ${Math.round(proposedDti * 100)}%.`);
       diagnostics.push('📈 Strong monthly cash surplus covers estimated loan repayments comfortably.');
       if (savingsBufferMonths > 0) {
         diagnostics.push(`🛡️ Emergency buffer of ${savingsBufferMonths.toFixed(1)} months provides solid collateral support.`);
       }
     } else {
-      status = 'Conditional';
+      status = 'Moderate Risk';
       estimatedRate = '10.99% - 13.50% APR';
-      diagnostics.push('⚠️ Approved conditionally with moderate rates.');
+      diagnostics.push('⚠️ Cash-flow matches moderate loan ranges under standard projections.');
       diagnostics.push(`📊 Proposed DTI ratio is at ${Math.round(proposedDti * 100)}%.`);
       diagnostics.push('📈 Cash flow surplus is sufficient, but savings buffers are low.');
-      diagnostics.push('💡 Tip: Adding a co-signer or opting for direct payroll deposit will lower your APR.');
+      diagnostics.push('💡 Tip: Adding a co-signer or opting for direct payroll deposit may help secure lower interest rates from actual lenders.');
     }
 
     const maxEligibleAmount = parseFloat(Math.max(0, monthlySurplus * 20).toFixed(2));
@@ -344,5 +344,5 @@ const checkLoanEligibility = async (req, res) => {
 module.exports = {
   getRecommendations,
   trackAffiliateClick,
-  checkLoanEligibility
+  simulateAffordability
 };

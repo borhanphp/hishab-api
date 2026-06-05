@@ -140,40 +140,40 @@ async function verifyMarketplace() {
       process.exit(1);
     }
 
-    // 6. Test Loan Eligibility Checker - Approved Case
+    // 6. Test Loan Affordability Estimator - Low Risk Case
     // Income = 6000, Expense = 1500, Surplus = 4500. Requested = 5000. Proposed repayment = 250.
-    // DTI = 250 / 6000 = ~4.1% (< 25%). Should be approved.
-    console.log('\nTesting Loan Eligibility Checker - Approved Case (Requesting $5,000)...');
-    const loanCheckRes1 = await fetch(`${API_URL}/marketplace/check-eligibility`, {
+    // DTI = 250 / 6000 = ~4.1% (< 25%). Should be low risk.
+    console.log('\nTesting Loan Affordability Estimator - Low Risk Case (Requesting $5,000)...');
+    const loanCheckRes1 = await fetch(`${API_URL}/marketplace/simulate-affordability`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ requestedAmount: 5000 })
     });
     const loanCheckData1 = await loanCheckRes1.json();
     
-    if (loanCheckRes1.ok && loanCheckData1.status === 'Approved') {
-      console.log(`✓ Loan Check: APPROVED! Max Eligible: $${loanCheckData1.maxEligibleAmount}, Rate: ${loanCheckData1.estimatedRate}`);
+    if (loanCheckRes1.ok && loanCheckData1.status === 'Low Risk') {
+      console.log(`✓ Loan Check: LOW RISK! Max Eligible: $${loanCheckData1.maxEligibleAmount}, Rate: ${loanCheckData1.estimatedRate}`);
       console.log('  Diagnostics:');
       loanCheckData1.diagnostics.forEach(d => console.log(`    ${d}`));
     } else {
-      console.log('✗ Loan Check (Approved Case) failed:', loanCheckData1);
+      console.log('✗ Loan Check (Low Risk Case) failed:', loanCheckData1);
       process.exit(1);
     }
 
-    // 7. Test Loan Checker - Declined Case (Requesting $150,000)
-    // Proposed repayment = 7500, which exceeds monthly surplus (4500). Should be declined.
-    console.log('\nTesting Loan Eligibility Checker - Declined Case (Requesting $150,000)...');
-    const loanCheckRes2 = await fetch(`${API_URL}/marketplace/check-eligibility`, {
+    // 7. Test Loan Estimator - High Risk Case (Requesting $150,000)
+    // Proposed repayment = 7500, which exceeds monthly surplus (4500). Should be high risk.
+    console.log('\nTesting Loan Affordability Estimator - High Risk Case (Requesting $150,000)...');
+    const loanCheckRes2 = await fetch(`${API_URL}/marketplace/simulate-affordability`, {
       method: 'POST',
       headers,
       body: JSON.stringify({ requestedAmount: 150000 })
     });
     const loanCheckData2 = await loanCheckRes2.json();
     
-    if (loanCheckRes2.ok && loanCheckData2.status === 'Declined') {
-      console.log(`✓ Loan Check: DECLINED! Reason preview: ${loanCheckData2.diagnostics[0]}`);
+    if (loanCheckRes2.ok && loanCheckData2.status === 'High Risk') {
+      console.log(`✓ Loan Check: HIGH RISK! Reason preview: ${loanCheckData2.diagnostics[0]}`);
     } else {
-      console.log('✗ Loan Check (Declined Case) failed:', loanCheckData2);
+      console.log('✗ Loan Check (High Risk Case) failed:', loanCheckData2);
       process.exit(1);
     }
 
@@ -215,20 +215,20 @@ async function verifyMarketplace() {
       })
     });
 
-    console.log('Testing Loan Checker - Conditional Case (Requesting $4,000)...');
-    const loanCheckRes3 = await fetch(`${API_URL}/marketplace/check-eligibility`, {
+    console.log('Testing Loan Checker - Moderate Risk Case (Requesting $4,000)...');
+    const loanCheckRes3 = await fetch(`${API_URL}/marketplace/simulate-affordability`, {
       method: 'POST',
       headers: headers2,
       body: JSON.stringify({ requestedAmount: 4000 })
     });
     const loanCheckData3 = await loanCheckRes3.json();
     
-    if (loanCheckRes3.ok && loanCheckData3.status === 'Conditional') {
-      console.log(`✓ Loan Check: CONDITIONAL! Max Eligible: $${loanCheckData3.maxEligibleAmount}, Rate: ${loanCheckData3.estimatedRate}`);
+    if (loanCheckRes3.ok && loanCheckData3.status === 'Moderate Risk') {
+      console.log(`✓ Loan Check: MODERATE RISK! Max Eligible: $${loanCheckData3.maxEligibleAmount}, Rate: ${loanCheckData3.estimatedRate}`);
       console.log('  Diagnostics:');
       loanCheckData3.diagnostics.forEach(d => console.log(`    ${d}`));
     } else {
-      console.log('✗ Loan Check (Conditional Case) failed:', loanCheckData3);
+      console.log('✗ Loan Check (Moderate Risk Case) failed:', loanCheckData3);
       process.exit(1);
     }
 
