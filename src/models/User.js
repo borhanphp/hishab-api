@@ -26,6 +26,10 @@ const UserSchema = new mongoose.Schema({
     type: String,
     default: '$',
   },
+  language: {
+    type: String,
+    default: 'en',
+  },
   profilePhoto: {
     type: String,
     default: 'https://api.dicebear.com/7.x/bottts/svg?seed=Hishab',

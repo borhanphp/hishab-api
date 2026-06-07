@@ -92,7 +92,7 @@ const getMe = async (req, res) => {
 // @route   PUT /api/auth/profile
 // @access  Private
 const updateProfile = async (req, res) => {
-  const { username, currency, profilePhoto, monthlyLoanTarget, financialGoal, monthlyBudget, enableNotifications, riskProfile } = req.body;
+  const { username, currency, language, profilePhoto, monthlyLoanTarget, financialGoal, monthlyBudget, enableNotifications, riskProfile } = req.body;
 
   try {
     const user = await User.findById(req.user.id);
@@ -102,6 +102,7 @@ const updateProfile = async (req, res) => {
 
     if (username) user.username = username;
     if (currency) user.currency = currency;
+    if (language) user.language = language;
     if (profilePhoto) user.profilePhoto = profilePhoto;
     if (typeof monthlyLoanTarget === 'number') user.monthlyLoanTarget = monthlyLoanTarget;
     if (financialGoal) user.financialGoal = financialGoal;
@@ -116,6 +117,7 @@ const updateProfile = async (req, res) => {
       username: updatedUser.username,
       email: updatedUser.email,
       currency: updatedUser.currency,
+      language: updatedUser.language,
       profilePhoto: updatedUser.profilePhoto,
       monthlyLoanTarget: updatedUser.monthlyLoanTarget,
       financialGoal: updatedUser.financialGoal,
